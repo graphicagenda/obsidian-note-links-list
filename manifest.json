@@ -1,11 +1,11 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "obsidian-note-links-list",
+	"name": "Note Links Viewer",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
+	"description": "Shows all links from the current note in a sidebar view",
+	"author": "Greg K.",
+	"authorUrl": "https://coming-soon.xyz",
 	"fundingUrl": "https://obsidian.md/pricing",
 	"isDesktopOnly": false
 }
