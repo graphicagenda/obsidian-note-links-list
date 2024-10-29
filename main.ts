@@ -44,7 +44,7 @@ const commonTLDs = new Set([
     'uk', 'us', 'eu', 'ca', 'au', 'de', 'fr'
 ]);
 
-function standardizeUrl(url: string): { standardized: string, display: string } {
+function standardizeUrl(url: string): { standardized: string, display: string } | undefined {
     const display = url; // Keep original for display
     
     // If it already has a protocol, return as is
@@ -66,16 +66,20 @@ function standardizeUrl(url: string): { standardized: string, display: string } 
     }
 
     // If not valid, return null
-    return null;
+    return undefined;
 }
 
 // Custom view for the sidebar
 class LinkListView extends ItemView {
-    private frontmatterLinks: LinkInfo[] = [];
+	private frontmatterLinks: LinkInfo[] = [];
     private noteLinks: LinkInfo[] = [];
+    private filterDuplicates: boolean = false;
+	private plugin: LinkViewerPlugin;
 
-    constructor(leaf: WorkspaceLeaf) {
+    constructor(leaf: WorkspaceLeaf, plugin: LinkViewerPlugin) {
         super(leaf);
+		this.plugin = plugin;
+        this.filterDuplicates = plugin.settings.filterDuplicates;
     }
 
     getViewType(): string {
@@ -90,12 +94,46 @@ class LinkListView extends ItemView {
         return "link";
     }
 
-    // Update the lists of links
-    updateLinks(frontmatterLinks: LinkInfo[], noteLinks: LinkInfo[]) {
+	updateLinks(frontmatterLinks: LinkInfo[], noteLinks: LinkInfo[]) {
         this.frontmatterLinks = frontmatterLinks;
         this.noteLinks = noteLinks;
         this.render();
     }
+
+	// Modified to ensure filtering happens
+	private filterLinks(frontmatterLinks: LinkInfo[], noteLinks: LinkInfo[]): { frontmatter: LinkInfo[], note: LinkInfo[] } {
+		if (!this.filterDuplicates) {
+			return { frontmatter: frontmatterLinks, note: noteLinks };
+		}
+
+		// Track all URLs we've seen across both sections
+		const seenUrls = new Set<string>();
+		const filteredFrontmatter: LinkInfo[] = [];
+		const filteredNote: LinkInfo[] = [];
+
+		// First process frontmatter links
+		for (const link of frontmatterLinks) {
+			const standardizedUrl = link.url.toLowerCase(); // Case-insensitive comparison
+			if (!seenUrls.has(standardizedUrl)) {
+				seenUrls.add(standardizedUrl);
+				filteredFrontmatter.push(link);
+			}
+		}
+
+		// Then process note links, still checking against the same seenUrls set
+		for (const link of noteLinks) {
+			const standardizedUrl = link.url.toLowerCase(); // Case-insensitive comparison
+			if (!seenUrls.has(standardizedUrl)) {
+				seenUrls.add(standardizedUrl);
+				filteredNote.push(link);
+			}
+		}
+
+		return {
+			frontmatter: filteredFrontmatter,
+			note: filteredNote
+		};
+	}
 
 	// Jump to specific position in editor
 	jumpToPosition(position: { from: { line: number, ch: number }, to: { line: number, ch: number } }) {
@@ -138,117 +176,174 @@ class LinkListView extends ItemView {
 		editor.focus();
 	}
 
+	private async renderFilterCheckbox(container: HTMLElement) {
+        const checkboxContainer = container.createEl('div', {
+            cls: 'filter-checkbox-container'
+        });
+
+        const checkbox = checkboxContainer.createEl('input', {
+            type: 'checkbox',
+            cls: 'filter-checkbox'
+        });
+        checkbox.checked = this.filterDuplicates;
+
+        const label = checkboxContainer.createEl('label', {
+            text: 'Show only first instance of each link',
+            cls: 'filter-checkbox-label'
+        });
+
+        checkbox.addEventListener('change', async (e) => {
+            this.filterDuplicates = checkbox.checked;
+            this.plugin.settings.filterDuplicates = checkbox.checked;
+            await this.plugin.saveSettings();
+            // Force immediate re-render with current data
+            this.render();
+        });
+    }
+
 	private renderLinkSection(container: HTMLElement, title: string, links: LinkInfo[], showJumpButton: boolean) {
-		if (links.length === 0) return;
+        if (!links || links.length === 0) return;
 
-		const sectionTitle = container.createEl('h4', { text: title });
-		sectionTitle.addClass('link-section-title');
+        const sectionTitle = container.createEl('h4', { text: title });
+        sectionTitle.addClass('link-section-title');
 
-		const linkList = container.createEl('ul');
-		linkList.addClass('link-list');
+        const linkList = container.createEl('ul');
+        linkList.addClass('link-list');
 
-		for (const link of links) {
-			const listItem = linkList.createEl('li');
-			listItem.addClass('link-item');
+        for (const link of links) {
+            const listItem = linkList.createEl('li');
+            listItem.addClass('link-item');
 
-			const innerContainer = listItem.createEl('div', {
-				cls: 'link-inner-container'
-			});
+            const innerContainer = listItem.createEl('div', {
+                cls: 'link-inner-container'
+            });
 
-			if (showJumpButton) {
-				const jumpButton = innerContainer.createEl('button', {
-					cls: 'jump-to-button'
-				});
-				jumpButton.innerHTML = JUMP_ICON;
-				jumpButton.addEventListener('click', (e) => {
-					e.preventDefault();
-					e.stopPropagation();
-					this.jumpToPosition(link.position);
-				});
-			}
+            if (showJumpButton) {
+                const jumpButton = innerContainer.createEl('button', {
+                    cls: 'jump-to-button'
+                });
+                jumpButton.innerHTML = JUMP_ICON;
+                jumpButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.jumpToPosition(link.position);
+                });
+            }
 
-			const linkEl = innerContainer.createEl('a', {
-				cls: 'link-text',
-				href: link.url, // Use standardized URL for href
-				text: link.displayUrl // Use original URL for display
-			});
-			
-			linkEl.addEventListener('click', (e) => {
-				e.preventDefault();
-				window.open(link.url, '_blank');
-			});
+            const linkEl = innerContainer.createEl('a', {
+                cls: 'link-text',
+                href: link.url,
+                text: link.displayUrl
+            });
+            
+            linkEl.addEventListener('click', (e) => {
+                e.preventDefault();
+                window.open(link.url, '_blank');
+            });
 
-			if (link.isFromFrontmatter && link.propertyKey) {
-				const propertyKey = innerContainer.createEl('span', {
-					cls: 'property-key',
-					text: link.propertyKey
-				});
-			}
+            if (link.isFromFrontmatter && link.propertyKey) {
+                const propertyKey = innerContainer.createEl('span', {
+                    cls: 'property-key',
+                    text: link.propertyKey
+                });
+            }
 
-			if (link.tags.length > 0) {
-				const tagContainer = innerContainer.createEl('span', {
-					cls: 'link-tags',
-					text: link.tags.join(', ')
-				});
-			}
-		}
-	}
+            if (link.tags.length > 0) {
+                const tagContainer = innerContainer.createEl('span', {
+                    cls: 'link-tags',
+                    text: link.tags.join(', ')
+                });
+            }
+        }
+    }
 
     // Render the view
 	async render() {
-        const container = this.containerEl.children[1];
-        container.empty(); 
+        const container = this.containerEl.children[1] as HTMLDivElement;
+        if (!container) return;
+		
+        container.empty();
 
-        if (this.frontmatterLinks.length === 0 && this.noteLinks.length === 0) {
+        // Add the filter checkbox at the top
+        await this.renderFilterCheckbox(container);
+
+        // Get filtered links using the current state
+        const { frontmatter, note } = this.filterLinks(this.frontmatterLinks, this.noteLinks);
+
+        if (frontmatter.length === 0 && note.length === 0) {
             container.createEl('p', { text: 'No links found in the current note.' });
             return;
         }
 
-        // Render frontmatter links section without jump button
-        this.renderLinkSection(container, "File Property's Links", this.frontmatterLinks, false);
-
-        // Render note links section with jump button
-        this.renderLinkSection(container, "Note's Links", this.noteLinks, true);
+        // Render sections with filtered links
+        this.renderLinkSection(container, "File Property's Links", frontmatter, false);
+        this.renderLinkSection(container, "Note's Links", note, true);
     }
+}
+
+// Add settings interface 
+interface LinkViewerSettings {
+    filterDuplicates: boolean;
+}
+
+// Default settings 
+const DEFAULT_SETTINGS: LinkViewerSettings = {
+    filterDuplicates: false
 }
 
 // Main plugin class
 export default class LinkViewerPlugin extends Plugin {
     private view: LinkListView;
+	settings: LinkViewerSettings;
 
     async onload() {
+		// Load saved settings
+		await this.loadSettings();
+				
 		// Load the custom styles
-        this.registerStyles();
+		this.registerStyles();
 
-        // Add custom icon
-        addIcon('link', LINK_ICON);
+		// Add custom icon
+		addIcon('link', LINK_ICON);
 
-        // Register the custom view type
-        this.registerView(
-            VIEW_TYPE_LINK_LIST,
-            (leaf: WorkspaceLeaf) => (this.view = new LinkListView(leaf))
-        );
+		// Register the custom view type
+		// Modified view registration to make extractLink methods accessible
+		this.registerView(
+			VIEW_TYPE_LINK_LIST,
+			(leaf: WorkspaceLeaf) => {
+				this.view = new LinkListView(leaf, this);
+				return this.view;
+			}
+		);
 
-        // Add the view to the right sidebar
-        this.addRibbonIcon('link', 'Show Note Links', async () => {
-            await this.activateView();
-        });
+		// Add the view to the right sidebar
+		this.addRibbonIcon('link', 'Show Note Links', async () => {
+			await this.activateView();
+		});
 
-        // Register event handlers
-        this.registerEvent(
-            this.app.workspace.on('active-leaf-change', async () => {
-                await this.updateLinkList();
-            })
-        );
+		// Register event handlers
+		this.registerEvent(
+			this.app.workspace.on('active-leaf-change', async () => {
+				await this.updateLinkList();
+			})
+		);
 
-        this.registerEvent(
-            this.app.workspace.on('editor-change', async () => {
-                await this.updateLinkList();
-            })
-        );
+		this.registerEvent(
+			this.app.workspace.on('editor-change', async () => {
+				await this.updateLinkList();
+			})
+		);
 
         // Initial view activation
         await this.activateView();
+    }
+
+	async loadSettings() {
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    }
+
+    async saveSettings() {
+        await this.saveData(this.settings);
     }
 
     async onunload() {
@@ -264,7 +359,7 @@ export default class LinkViewerPlugin extends Plugin {
     }
 
     // Extract links from frontmatter
-	private extractFrontmatterLinks(editor: Editor): LinkInfo[] {
+	public extractFrontmatterLinks(editor: Editor): LinkInfo[] {
         const links: LinkInfo[] = [];
         const content = editor.getValue();
         const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
@@ -313,7 +408,7 @@ export default class LinkViewerPlugin extends Plugin {
     }
 
     // Extract links from note content
-	private extractNoteLinks(editor: Editor): LinkInfo[] {
+	public extractNoteLinks(editor: Editor): LinkInfo[] {
         const links: LinkInfo[] = [];
         const content = editor.getValue();
         let contentStartLine = 0;
@@ -365,18 +460,22 @@ export default class LinkViewerPlugin extends Plugin {
     } 
 
     // Update the link list based on the active note
-    private async updateLinkList() {
+	private async updateLinkList() {
         const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
         
         if (activeView?.editor) {
             const frontmatterLinks = this.extractFrontmatterLinks(activeView.editor);
             const noteLinks = this.extractNoteLinks(activeView.editor);
-            this.view?.updateLinks(frontmatterLinks, noteLinks);
+            // Only update if we have a view
+            // if (this.view) {
+            //     this.view.updateLinks(frontmatterLinks, noteLinks);
+            // }
+			this.view.updateLinks(frontmatterLinks, noteLinks);
         }
     }
 
     // Activate the sidebar view
-    private async activateView() {
+    private async activateView() { 
         const { workspace } = this.app;
         let leaf = workspace.getLeavesOfType(VIEW_TYPE_LINK_LIST)[0];
         
@@ -405,6 +504,25 @@ export default class LinkViewerPlugin extends Plugin {
 
 // Add CSS styles
 const styles = `
+.filter-checkbox-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 15px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.filter-checkbox {
+    cursor: pointer;
+}
+
+.filter-checkbox-label {
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.9em;
+}
+
+/* Previous styles remain the same */
 .link-section-title {
     margin-top: 16px;
     margin-bottom: 8px;
@@ -418,7 +536,7 @@ const styles = `
     list-style: none;
     padding: 0;
     margin: 0;
-	padding-left: 15px;
+    padding-left: 15px;
 }
 
 .link-item {
@@ -485,7 +603,6 @@ const styles = `
     flex-shrink: 0;
 }
 
-/* Increase the size of the view icon in the tab */
 .workspace-tab-header[data-type="${VIEW_TYPE_LINK_LIST}"] .workspace-tab-header-inner-icon svg {
     width: 20px;
     height: 20px;
