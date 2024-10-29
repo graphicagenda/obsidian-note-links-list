@@ -19,6 +19,7 @@ const JUMP_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18
 // Interface for storing link information
 interface LinkInfo {
     url: string;
+	displayUrl: string;
     tags: string[];
     position: {
         from: {
@@ -32,6 +33,40 @@ interface LinkInfo {
     };
     isFromFrontmatter: boolean;
     propertyKey?: string;
+}
+
+// URL processing utilities
+const commonTLDs = new Set([
+    'com', 'net', 'org', 'edu', 'gov', 'mil',
+    'io', 'ai', 'app', 'dev', 'cloud',
+    'co', 'me', 'info', 'biz', 'tech',
+    'blog', 'design', 'store', 'shop',
+    'uk', 'us', 'eu', 'ca', 'au', 'de', 'fr'
+]);
+
+function standardizeUrl(url: string): { standardized: string, display: string } {
+    const display = url; // Keep original for display
+    
+    // If it already has a protocol, return as is
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+        return { standardized: url, display };
+    }
+
+    // Extract the domain and TLD
+    const domainParts = url.split('/')[0].split('.');
+    const tld = domainParts[domainParts.length - 1].toLowerCase();
+
+    // Validate if it's likely a real URL by checking TLD
+    if (commonTLDs.has(tld)) {
+        // Add https:// prefix for the standardized version
+        return { 
+            standardized: 'https://' + url,
+            display
+        };
+    }
+
+    // If not valid, return null
+    return null;
 }
 
 // Custom view for the sidebar
@@ -62,102 +97,102 @@ class LinkListView extends ItemView {
         this.render();
     }
 
-// Jump to specific position in editor
-jumpToPosition(position: { from: { line: number, ch: number }, to: { line: number, ch: number } }) {
-	// First, make sure we have the active markdown view
-	let activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-	
-	// If no active markdown view, find one and activate it
-	if (!activeView) {
-		const markdownLeaves = this.app.workspace.getLeavesOfType("markdown");
-		if (markdownLeaves.length > 0) {
-			this.app.workspace.setActiveLeaf(markdownLeaves[0]);
-			activeView = markdownLeaves[0].view as MarkdownView;
-		}
-	}
-	
-	if (!activeView?.editor) return;
-	
-	const editor = activeView.editor;
-	
-	// Move cursor and select the text
-	const from = {
-		line: position.from.line,
-		ch: position.from.ch
-	};
-	
-	const to = {
-		line: position.to.line,
-		ch: position.to.ch
-	};
-
-	// Set cursor position and selection
-	editor.setCursor(from);
-	editor.setSelection(from, to);
-	
-	// Scroll the selected text into view
-	editor.scrollIntoView({ from, to }, true);
-
-	// Activate and focus the editor
-	activeView.leaf.setEphemeralState({ focus: true });
-	editor.focus();
-}
-
-private renderLinkSection(container: HTMLElement, title: string, links: LinkInfo[], showJumpButton: boolean) {
-	if (links.length === 0) return;
-
-	const sectionTitle = container.createEl('h4', { text: title });
-	sectionTitle.addClass('link-section-title');
-
-	const linkList = container.createEl('ul');
-	linkList.addClass('link-list');
-
-	for (const link of links) {
-		const listItem = linkList.createEl('li');
-		listItem.addClass('link-item');
-
-		const innerContainer = listItem.createEl('div', {
-			cls: 'link-inner-container'
-		});
-
-		if (showJumpButton) {
-			const jumpButton = innerContainer.createEl('button', {
-				cls: 'jump-to-button'
-			});
-			jumpButton.innerHTML = JUMP_ICON;
-			jumpButton.addEventListener('click', (e) => {
-				e.preventDefault();
-				e.stopPropagation();
-				this.jumpToPosition(link.position);
-			});
-		}
-
-		const linkEl = innerContainer.createEl('a', {
-			cls: 'link-text',
-			href: link.url,
-			text: link.url
-		});
+	// Jump to specific position in editor
+	jumpToPosition(position: { from: { line: number, ch: number }, to: { line: number, ch: number } }) {
+		// First, make sure we have the active markdown view
+		let activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 		
-		linkEl.addEventListener('click', (e) => {
-			e.preventDefault();
-			window.open(link.url, '_blank');
-		});
-
-		if (link.isFromFrontmatter && link.propertyKey) {
-			const propertyKey = innerContainer.createEl('span', {
-				cls: 'property-key',
-				text: link.propertyKey
-			});
+		// If no active markdown view, find one and activate it
+		if (!activeView) {
+			const markdownLeaves = this.app.workspace.getLeavesOfType("markdown");
+			if (markdownLeaves.length > 0) {
+				this.app.workspace.setActiveLeaf(markdownLeaves[0]);
+				activeView = markdownLeaves[0].view as MarkdownView;
+			}
 		}
+		
+		if (!activeView?.editor) return;
+		
+		const editor = activeView.editor;
+		
+		// Move cursor and select the text
+		const from = {
+			line: position.from.line,
+			ch: position.from.ch
+		};
+		
+		const to = {
+			line: position.to.line,
+			ch: position.to.ch
+		};
 
-		if (link.tags.length > 0) {
-			const tagContainer = innerContainer.createEl('span', {
-				cls: 'link-tags',
-				text: link.tags.join(', ')
+		// Set cursor position and selection
+		editor.setCursor(from);
+		editor.setSelection(from, to);
+		
+		// Scroll the selected text into view
+		editor.scrollIntoView({ from, to }, true);
+
+		// Activate and focus the editor
+		activeView.leaf.setEphemeralState({ focus: true });
+		editor.focus();
+	}
+
+	private renderLinkSection(container: HTMLElement, title: string, links: LinkInfo[], showJumpButton: boolean) {
+		if (links.length === 0) return;
+
+		const sectionTitle = container.createEl('h4', { text: title });
+		sectionTitle.addClass('link-section-title');
+
+		const linkList = container.createEl('ul');
+		linkList.addClass('link-list');
+
+		for (const link of links) {
+			const listItem = linkList.createEl('li');
+			listItem.addClass('link-item');
+
+			const innerContainer = listItem.createEl('div', {
+				cls: 'link-inner-container'
 			});
+
+			if (showJumpButton) {
+				const jumpButton = innerContainer.createEl('button', {
+					cls: 'jump-to-button'
+				});
+				jumpButton.innerHTML = JUMP_ICON;
+				jumpButton.addEventListener('click', (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					this.jumpToPosition(link.position);
+				});
+			}
+
+			const linkEl = innerContainer.createEl('a', {
+				cls: 'link-text',
+				href: link.url, // Use standardized URL for href
+				text: link.displayUrl // Use original URL for display
+			});
+			
+			linkEl.addEventListener('click', (e) => {
+				e.preventDefault();
+				window.open(link.url, '_blank');
+			});
+
+			if (link.isFromFrontmatter && link.propertyKey) {
+				const propertyKey = innerContainer.createEl('span', {
+					cls: 'property-key',
+					text: link.propertyKey
+				});
+			}
+
+			if (link.tags.length > 0) {
+				const tagContainer = innerContainer.createEl('span', {
+					cls: 'link-tags',
+					text: link.tags.join(', ')
+				});
+			}
 		}
 	}
-}
 
     // Render the view
 	async render() {
@@ -236,7 +271,7 @@ export default class LinkViewerPlugin extends Plugin {
         
         if (frontmatterMatch) {
             const frontmatter = frontmatterMatch[1];
-            const urlRegex = /(https?:\/\/[^\s\]]+)/g;
+            const urlRegex = /(https?:\/\/[^\s\]]+)|(?:www\.)?([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,})(?:\/[^\s\]]*)?/g;
             const lines = frontmatter.split('\n');
             
             lines.forEach((line, index) => {
@@ -245,30 +280,36 @@ export default class LinkViewerPlugin extends Plugin {
                     const [, key, value] = propertyMatch;
                     let match;
                     while ((match = urlRegex.exec(value)) !== null) {
-                        // Add 1 to account for the opening '---'
-                        const actualLineNumber = index + 1;
+                        const matchedUrl = match[0];
+                        const urlInfo = standardizeUrl(matchedUrl);
                         
-                        links.push({
-                            url: match[0],
-                            tags: [],
-                            position: {
-                                from: { 
-                                    line: actualLineNumber,
-                                    ch: line.indexOf(match[0])
+                        if (urlInfo) {
+                            // Add 1 to account for the opening '---'
+                            const actualLineNumber = index + 1;
+                            
+                            links.push({
+                                url: urlInfo.standardized,
+                                displayUrl: urlInfo.display,
+                                tags: [],
+                                position: {
+                                    from: { 
+                                        line: actualLineNumber,
+                                        ch: line.indexOf(matchedUrl)
+                                    },
+                                    to: { 
+                                        line: actualLineNumber,
+                                        ch: line.indexOf(matchedUrl) + matchedUrl.length
+                                    }
                                 },
-                                to: { 
-                                    line: actualLineNumber,
-                                    ch: line.indexOf(match[0]) + match[0].length
-                                }
-                            },
-                            isFromFrontmatter: true,
-                            propertyKey: key
-                        });
+                                isFromFrontmatter: true,
+                                propertyKey: key
+                            });
+                        }
                     }
                 }
             });
         }
-		return links;
+        return links;
     }
 
     // Extract links from note content
@@ -277,17 +318,15 @@ export default class LinkViewerPlugin extends Plugin {
         const content = editor.getValue();
         let contentStartLine = 0;
         
-        // Find where the frontmatter ends, if it exists
         const frontmatterMatch = content.match(/^---\n[\s\S]*?\n---\n/);
         if (frontmatterMatch) {
             contentStartLine = frontmatterMatch[0].split('\n').length - 1;
         }
         
-        // Get content lines after frontmatter
         const lines = content.split('\n');
         const contentLines = lines.slice(contentStartLine);
         
-        const urlRegex = /(https?:\/\/[^\s\]]+)/g;
+        const urlRegex = /(?:https?:\/\/)?(?:www\.)?([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,})(?:\/[^\s\]]*)?/g;
         const tagRegex = /#[\w-]+/g;
 
         contentLines.forEach((line, index) => {
@@ -295,29 +334,35 @@ export default class LinkViewerPlugin extends Plugin {
             let match;
             
             while ((match = urlRegex.exec(line)) !== null) {
-                const tags = (line.match(tagRegex) || [])
-                    .map(tag => tag.substring(1));
+                const matchedUrl = match[0];
+                const urlInfo = standardizeUrl(matchedUrl);
+                
+                if (urlInfo) {
+                    const tags = (line.match(tagRegex) || [])
+                        .map(tag => tag.substring(1));
 
-                links.push({
-                    url: match[0],
-                    tags: tags,
-                    position: {
-                        from: { 
-                            line: actualLineNumber, 
-                            ch: match.index 
+                    links.push({
+                        url: urlInfo.standardized,
+                        displayUrl: urlInfo.display,
+                        tags: tags,
+                        position: {
+                            from: { 
+                                line: actualLineNumber, 
+                                ch: match.index 
+                            },
+                            to: { 
+                                line: actualLineNumber, 
+                                ch: match.index + matchedUrl.length 
+                            }
                         },
-                        to: { 
-                            line: actualLineNumber, 
-                            ch: match.index + match[0].length 
-                        }
-                    },
-                    isFromFrontmatter: false
-                });
+                        isFromFrontmatter: false
+                    });
+                }
             }
         });
 
         return links;
-    }
+    } 
 
     // Update the link list based on the active note
     private async updateLinkList() {
