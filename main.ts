@@ -137,44 +137,49 @@ class LinkListView extends ItemView {
 
 	// Jump to specific position in editor
 	jumpToPosition(position: { from: { line: number, ch: number }, to: { line: number, ch: number } }) {
-		// First, make sure we have the active markdown view
-		let activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-		
-		// If no active markdown view, find one and activate it
-		if (!activeView) {
-			const markdownLeaves = this.app.workspace.getLeavesOfType("markdown");
-			if (markdownLeaves.length > 0) {
-				this.app.workspace.setActiveLeaf(markdownLeaves[0]);
-				activeView = markdownLeaves[0].view as MarkdownView;
-			}
-		}
-		
-		if (!activeView?.editor) return;
-		
-		const editor = activeView.editor;
-		
-		// Move cursor and select the text
-		const from = {
-			line: position.from.line,
-			ch: position.from.ch
-		};
-		
-		const to = {
-			line: position.to.line,
-			ch: position.to.ch
-		};
+        // Get the active file
+        const activeFile = this.app.workspace.getActiveFile();
+        if (!activeFile) return;
 
-		// Set cursor position and selection
-		editor.setCursor(from);
-		editor.setSelection(from, to);
-		
-		// Scroll the selected text into view
-		editor.scrollIntoView({ from, to }, true);
+        // Find all markdown leaves showing this file
+        const matchingLeaves = this.app.workspace.getLeavesOfType("markdown").filter(leaf => {
+            const view = leaf.view as MarkdownView;
+            return view.file?.path === activeFile.path;
+        });
 
-		// Activate and focus the editor
-		activeView.leaf.setEphemeralState({ focus: true });
-		editor.focus();
-	}
+        if (matchingLeaves.length === 0) return;
+
+        // Get the active leaf among matching leaves, or the first matching leaf
+        let targetLeaf = matchingLeaves.find(leaf => leaf.view === this.app.workspace.getActiveViewOfType(MarkdownView))
+            || matchingLeaves[0];
+
+        // Focus the correct leaf
+        this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
+        
+        // Get the editor from the target leaf
+        const view = targetLeaf.view as MarkdownView;
+        const editor = view.editor;
+
+        if (!editor) return;
+
+        // Move cursor and select the text
+        const from = {
+            line: position.from.line,
+            ch: position.from.ch
+        };
+
+        const to = {
+            line: position.to.line,
+            ch: position.to.ch
+        };
+
+        // Set cursor position and selection
+        editor.setCursor(from);
+        editor.setSelection(from, to);
+
+        // Scroll the selected text into view
+        editor.scrollIntoView({ from, to }, true);
+    }
 
 	private async renderFilterCheckbox(container: HTMLElement) {
         const checkboxContainer = container.createEl('div', {
@@ -261,7 +266,7 @@ class LinkListView extends ItemView {
 	async render() {
         const container = this.containerEl.children[1] as HTMLDivElement;
         if (!container) return;
-		
+
         container.empty();
 
         // Add the filter checkbox at the top
